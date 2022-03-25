@@ -139,9 +139,9 @@ lru_size = 0`
 
 func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
 	cfg := sdk.GetConfig()
-        cfg.SetBech32PrefixForAccount("cosmos", "cosmospub")
-	cfg.SetBech32PrefixForValidator("cosmosvaloper", "cosmosvaloperpub")
-	cfg.SetBech32PrefixForConsensusNode("cosmosvalcons", "cosmosvalconspub")
+        cfg.SetBech32PrefixForAccount("persistence", "persistencepub")
+	cfg.SetBech32PrefixForValidator("persistencevaloper", "persistencevaloperpub")
+	cfg.SetBech32PrefixForConsensusNode("persistencevalcons", "persistencevalconspub")
 	cfg.Seal()
 
 	rootCmd.AddCommand(
