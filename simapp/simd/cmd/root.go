@@ -142,6 +142,7 @@ func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
         cfg.SetBech32PrefixForAccount("persistence", "persistencepub")
 	cfg.SetBech32PrefixForValidator("persistencevaloper", "persistencevaloperpub")
 	cfg.SetBech32PrefixForConsensusNode("persistencevalcons", "persistencevalconspub")
+	cfg.SetCoinType(750)
 	cfg.Seal()
 
 	rootCmd.AddCommand(
