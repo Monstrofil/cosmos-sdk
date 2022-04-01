@@ -139,9 +139,9 @@ lru_size = 0`
 
 func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
 	cfg := sdk.GetConfig()
-	cfg.SetBech32PrefixForAccount("juno", "junopub")
-	cfg.SetBech32PrefixForValidator("junovaloper", "junovaloperpub")
-	cfg.SetBech32PrefixForConsensusNode("junovalcons", "junovalconspub")
+	cfg.SetBech32PrefixForAccount("secret", "secretpub")
+	cfg.SetBech32PrefixForValidator("secretvaloper", "secretvaloperpub")
+	cfg.SetBech32PrefixForConsensusNode("secretvalcons", "secretvalconspub")
 	cfg.Seal()
 
 	rootCmd.AddCommand(
