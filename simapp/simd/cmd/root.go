@@ -139,9 +139,9 @@ lru_size = 0`
 
 func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
 	cfg := sdk.GetConfig()
-	cfg.SetBech32PrefixForAccount("sif", "sifpub")
-	cfg.SetBech32PrefixForValidator("sifvaloper", "sifvaloperpub")
-	cfg.SetBech32PrefixForConsensusNode("sifvalcons", "sifvalconspub")
+	cfg.SetBech32PrefixForAccount("rizon", "rizonpub")
+	cfg.SetBech32PrefixForValidator("rizonvaloper", "rizonvaloperpub")
+	cfg.SetBech32PrefixForConsensusNode("rizonvalcons", "rizonvalconspub")
 	cfg.Seal()
 
 	rootCmd.AddCommand(
