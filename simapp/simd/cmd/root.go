@@ -139,9 +139,9 @@ lru_size = 0`
 
 func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
 	cfg := sdk.GetConfig()
-	cfg.SetBech32PrefixForAccount("fetch", "fetchpub")
-	cfg.SetBech32PrefixForValidator("fetchvaloper", "fetchvaloperpub")
-	cfg.SetBech32PrefixForConsensusNode("fetchvalcons", "fetchvalconspub")
+	cfg.SetBech32PrefixForAccount("osmo", "osmopub")
+	cfg.SetBech32PrefixForValidator("osmovaloper", "osmovaloperpub")
+	cfg.SetBech32PrefixForConsensusNode("osmovalcons", "osmovalconspub")
 	cfg.Seal()
 
 	rootCmd.AddCommand(
