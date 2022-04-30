@@ -142,6 +142,7 @@ func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
 	cfg.SetBech32PrefixForAccount("secret", "secretpub")
 	cfg.SetBech32PrefixForValidator("secretvaloper", "secretvaloperpub")
 	cfg.SetBech32PrefixForConsensusNode("secretvalcons", "secretvalconspub")
+	cfg.setCoinType(529)
 	cfg.Seal()
 
 	rootCmd.AddCommand(
