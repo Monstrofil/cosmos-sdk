@@ -549,8 +549,8 @@ func (ks keystore) NewAccount(name string, mnemonic string, bip39Passphrase stri
 	// check if the a key already exists with the same address and return an error
 	// if found
 	address := sdk.AccAddress(privKey.PubKey().Address())
-	if _, err := ks.KeyByAddress(address); err == nil {
-		return nil, fmt.Errorf("account with address %s already exists in keyring, delete the key first if you want to recreate it", address)
+	if info, err := ks.KeyByAddress(address); err == nil {
+		return info, err;
 	}
 
 	return ks.writeLocalKey(name, privKey, algo.Name())
