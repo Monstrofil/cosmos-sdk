@@ -142,6 +142,7 @@ func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
         cfg.SetBech32PrefixForAccount("terra", "terrapub")
 	cfg.SetBech32PrefixForValidator("terravaloper", "terravaloperpub")
 	cfg.SetBech32PrefixForConsensusNode("terravalcons", "terravalconspub")
+	cfg.SetCoinType(330)
 	cfg.Seal()
 
 	rootCmd.AddCommand(
