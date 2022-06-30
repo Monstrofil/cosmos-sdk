@@ -379,8 +379,9 @@ func (app *BaseApp) IsSealed() bool { return app.sealed }
 func (app *BaseApp) setCheckState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
 	app.checkState = &state{
-		ms:  ms,
-		ctx: sdk.NewContext(ms, header, true, app.logger).WithMinGasPrices(app.minGasPrices),
+		ms:           ms,
+		ctx:          sdk.NewContext(ms, header, true, app.logger).WithMinGasPrices(app.minGasPrices),
+		eventHistory: []abci.Event{},
 	}
 }
 
@@ -391,8 +392,9 @@ func (app *BaseApp) setCheckState(header tmproto.Header) {
 func (app *BaseApp) setDeliverState(header tmproto.Header) {
 	ms := app.cms.CacheMultiStore()
 	app.deliverState = &state{
-		ms:  ms,
-		ctx: sdk.NewContext(ms, header, false, app.logger),
+		ms:           ms,
+		ctx:          sdk.NewContext(ms, header, false, app.logger),
+		eventHistory: []abci.Event{},
 	}
 }
 
@@ -583,13 +585,7 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 
 	// only run the tx if there is block gas remaining
 	if mode == runTxModeDeliver && ctx.BlockGasMeter().IsOutOfGas() {
-		gInfo = sdk.GasInfo{GasUsed: ctx.BlockGasMeter().GasConsumed()}
 		return gInfo, nil, nil, sdkerrors.Wrap(sdkerrors.ErrOutOfGas, "no block gas left to run tx")
-	}
-
-	var startingGas uint64
-	if mode == runTxModeDeliver {
-		startingGas = ctx.BlockGasMeter().GasConsumed()
 	}
 
 	defer func() {
@@ -601,22 +597,26 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed()}
 	}()
 
+	blockGasConsumed := false
+	// consumeBlockGas makes sure block gas is consumed at most once. It must happen after
+	// tx processing, and must be execute even if tx processing fails. Hence we use trick with `defer`
+	consumeBlockGas := func() {
+		if !blockGasConsumed {
+			blockGasConsumed = true
+			ctx.BlockGasMeter().ConsumeGas(
+				ctx.GasMeter().GasConsumedToLimit(), "block gas meter",
+			)
+		}
+	}
+
 	// If BlockGasMeter() panics it will be caught by the above recover and will
 	// return an error - in any case BlockGasMeter will consume gas past the limit.
 	//
 	// NOTE: This must exist in a separate defer function for the above recovery
 	// to recover from this one.
-	defer func() {
-		if mode == runTxModeDeliver {
-			ctx.BlockGasMeter().ConsumeGas(
-				ctx.GasMeter().GasConsumedToLimit(), "block gas meter",
-			)
-
-			if ctx.BlockGasMeter().GasConsumed() < startingGas {
-				panic(sdk.ErrorGasOverflow{Descriptor: "tx gas summation"})
-			}
-		}
-	}()
+	if mode == runTxModeDeliver {
+		defer consumeBlockGas()
+	}
 
 	tx, err := app.txDecoder(txBytes)
 	if err != nil {
@@ -678,11 +678,15 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 	// Result if any single message fails or does not have a registered Handler.
 	result, err = app.runMsgs(runMsgCtx, msgs, mode)
 	if err == nil && mode == runTxModeDeliver {
+		// When block gas exceeds, it'll panic and won't commit the cached store.
+		consumeBlockGas()
+
 		msCache.Write()
 
 		if len(anteEvents) > 0 {
 			// append the events in the order of occurrence
 			result.Events = append(anteEvents, result.Events...)
+			app.deliverState.eventHistory = append(app.deliverState.eventHistory, result.Events...)
 		}
 	}
 
@@ -697,6 +701,7 @@ func (app *BaseApp) runTx(mode runTxMode, txBytes []byte) (gInfo sdk.GasInfo, re
 func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*sdk.Result, error) {
 	msgLogs := make(sdk.ABCIMessageLogs, 0, len(msgs))
 	events := sdk.EmptyEvents()
+	historicalEvents := ctx.EventManager().GetABCIEventHistory()
 	txMsgData := &sdk.TxMsgData{
 		Data: make([]*sdk.MsgData, 0, len(msgs)),
 	}
@@ -714,9 +719,10 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			err          error
 		)
 
+		msgCtx := ctx.WithEventManager(sdk.NewEventManagerWithHistory(historicalEvents))
 		if handler := app.msgServiceRouter.Handler(msg); handler != nil {
 			// ADR 031 request type routing
-			msgResult, err = handler(ctx, msg)
+			msgResult, err = handler(msgCtx, msg)
 			eventMsgName = sdk.MsgTypeURL(msg)
 		} else if legacyMsg, ok := msg.(legacytx.LegacyMsg); ok {
 			// legacy sdk.Msg routing
@@ -726,12 +732,12 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			// registered within the `msgServiceRouter` already.
 			msgRoute := legacyMsg.Route()
 			eventMsgName = legacyMsg.Type()
-			handler := app.router.Route(ctx, msgRoute)
+			handler := app.router.Route(msgCtx, msgRoute)
 			if handler == nil {
 				return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unrecognized message route: %s; message index: %d", msgRoute, i)
 			}
 
-			msgResult, err = handler(ctx, msg)
+			msgResult, err = handler(msgCtx, msg)
 		} else {
 			return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "can't route message %+v", msg)
 		}
@@ -750,6 +756,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		// Note: Each message result's data must be length-prefixed in order to
 		// separate each result.
 		events = events.AppendEvents(msgEvents)
+		historicalEvents = append(historicalEvents, msgEvents.ToABCIEvents()...)
 
 		txMsgData.Data = append(txMsgData.Data, &sdk.MsgData{MsgType: sdk.MsgTypeURL(msg), Data: msgResult.Data})
 		msgLogs = append(msgLogs, sdk.NewABCIMessageLog(uint32(i), msgResult.Log, msgEvents))

@@ -12,7 +12,8 @@ order: 6
         - [Determining Vesting & Vested Amounts](#determining-vesting--vested-amounts)
             - [Continuously Vesting Accounts](#continuously-vesting-accounts)
         - [Periodic Vesting Accounts](#periodic-vesting-accounts)
-            - [Delayed/Discrete Vesting Accounts](#delayeddiscrete-vesting-accounts)
+        - [Clawback Vesting Accounts](#clawback-vesting-accounts)
+        - [Delayed/Discrete Vesting Accounts](#delayeddiscrete-vesting-accounts)
         - [Transferring/Sending](#transferringsending)
             - [Keepers/Handlers](#keepershandlers)
         - [Delegating](#delegating)
@@ -29,17 +30,17 @@ order: 6
 
 ## Intro and Requirements
 
-This specification defines the vesting account implementation that is used by
-the Cosmos Hub. The requirements for this vesting account is that it should be
-initialized during genesis with a starting balance `X` and a vesting end
-time `ET`. A vesting account may be initialized with a vesting start time `ST`
-and a number of vesting periods `P`. If a vesting start time is included, the
-vesting period will not begin until start time is reached. If vesting periods
-are included, the vesting will occur over the specified number of periods.
+This specification defines the vesting account implementations that are used
+by the Cosmos Hub. Vesting accounts should be initialized during genesis with
+a starting balance `X` and a vesting end time `ET`. A vesting account may be
+initialized with a vesting start time `ST` and a number of vesting periods `P`.
+If a vesting start time is included, the vesting period will not begin until
+start time is reached. If vesting periods are included, the vesting will occur
+over the specified number of periods.
 
 For all vesting accounts, the owner of the vesting account is able to delegate
 and undelegate from validators, however they cannot transfer coins to another
-account until those coins are vested. This specification allows for three
+account until those coins are vested. This specification allows for several
 different kinds of vesting:
 
 - Delayed vesting, where all coins are vested once `ET` is reached.
@@ -52,7 +53,15 @@ configurable. A periodic vesting account is distinguished from a continuous
 vesting account in that coins can be released in staggered tranches. For
 example, a periodic vesting account could be used for vesting arrangements
 where coins are relased quarterly, yearly, or over any other function of
-tokens over time.
+tokens over time. Additional grants can be made to an existing account.
+- Clawback vesting, like periodic vesting, but unvested coins may be
+"clawed back" by the account which funded the initial grant of coins.
+These accounts have independent schedules for unlocking (being available for
+transfer) and vesting (also unavailable for transfer, but also subject to
+clawback). Additional grants can be made to an existing account. Unvested
+coins may be staked, but staking rewards are subject to vesting (see details
+below). Staked (or unbonding) tokens are clawed back in their staked
+(unbonding) state.
 
 ## Note
 
@@ -131,6 +140,16 @@ type ViewKeeper interface {
   SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
 }
 ```
+
+### ClawbackVestingAccount
+
+[Snippet available after upstreaming.]
+
+Note that the `vesting_periods` field defines what is locked and subject to
+clawback. The `lockup_periods` field defines locking that is not subject to
+clawback with the same total amount but a separate schedule. Thus, tokens
+might be vested (immune from clawback) but still locked (unavailable for
+transfer).
 
 ## Vesting Account Specification
 
@@ -232,7 +251,42 @@ func (pva PeriodicVestingAccount) GetVestingCoins(t Time) Coins {
 }
 ```
 
-#### Delayed/Discrete Vesting Accounts
+### Clawback Vesting Accounts
+
+Works like a Periodic vesting account, except that coins must be both vested
+and unlocked in order to be transferred. This allows coins to be vested, but
+still not available for transfer. For instance, you can have an account where
+the tokens vest monthly over two years, but are locked until 12 months. In
+this case, no coins can be transferred until the one year anniversary where
+half become transferrable, then one twelfth of the remainder each month
+thereafter.
+
+Since the commands to stake and unstake tokens do not specify the character
+of the funds to use (i.e. locked, vested, etc.), vesting accounts use a policy
+to determine how bonded and unbonding tokens are distributed. To determine
+the amount that is available for transfer (the only question most vesting
+accounts face), the policy is to maximize the number available for transfer
+by maximizing the locked tokens used for delegation. Slashing looks like
+tokens which remain forever bonded, and thus reduce the number of actual
+bonded and unbonded tokens which are encumbered to prevent transfer. This
+is the policy followed by all vesting accounts.
+
+But for clawback accounts, we distinguish between the encumbrance that is
+enforced preventing transfer and the right of the funder to retrieve the
+unvested amount from the account. The latter is not reduced by slashing,
+though slashing might limit the number of tokens which can be retrieved.
+
+Additional grants may be added to an existing `ClawbackVestingAccount` with
+their own schedule. Additional grants must come from the same account that
+provided the initial grant that created the account.
+
+Staking rewards are automatically added as such an additional grant following
+the current vesting schedule, with amounts scaled proportionally. (Staking
+rewards are given an immediate unlocking schedule.) The proportion follows
+the policy used to determine which tokens may be transferred - staked tokens
+prefer to be unvested first.
+
+### Delayed/Discrete Vesting Accounts
 
 Delayed vesting accounts are easier to reason about as they only have the full
 amount vesting up until a certain time, then all the coins become vested (unlocked).
@@ -266,8 +320,8 @@ the locked balance, which can be defined as `max(V - DV, 0)`, and infer the
 spendable balance from that.
 
 ```go
-func (va VestingAccount) LockedCoins(t Time) Coins {
-   return max(va.GetVestingCoins(t) - va.DelegatedVesting, 0)
+func (va VestingAccount) LockedCoins(ctx sdk.Context) Coins {
+   return max(va.GetVestingCoins(ctx.BlockTime()) - va.DelegatedVesting, 0)
 }
 ```
 
@@ -279,7 +333,7 @@ func (k Keeper) LockedCoins(ctx Context, addr AccAddress) Coins {
     acc := k.GetAccount(ctx, addr)
     if acc != nil {
         if acc.IsVesting() {
-            return acc.LockedCoins(ctx.BlockTime())
+            return acc.LockedCoins(ctx)
         }
     }
 
@@ -616,3 +670,7 @@ all coins at a given time.
 according to a custom vesting schedule.
 - PermanentLockedAccount: It does not ever release coins, locking them indefinitely.
 Coins in this account can still be used for delegating and for governance votes even while locked.
+- Clawback: removal of unvested tokens from a ClawbackVestingAccount.
+- ClawbackVestingAccount: a vesting account specifying separate schedules for
+vesting (subject to clawback) and lockup (inability to transfer out of the
+account - the encumbrance implemented by the other vesting account types).

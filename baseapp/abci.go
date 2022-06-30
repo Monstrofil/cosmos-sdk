@@ -208,13 +208,17 @@ func (app *BaseApp) EndBlock(req abci.RequestEndBlock) (res abci.ResponseEndBloc
 	}
 
 	if app.endBlocker != nil {
-		res = app.endBlocker(app.deliverState.ctx, req)
+		// Propagate the event history.
+		em := sdk.NewEventManagerWithHistory(app.deliverState.eventHistory)
+		res = app.endBlocker(app.deliverState.ctx.WithEventManager(em), req)
 		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
 	}
 
 	if cp := app.GetConsensusParams(app.deliverState.ctx); cp != nil {
 		res.ConsensusParamUpdates = cp
 	}
+
+	app.deliverState.eventHistory = []abci.Event{}
 
 	return res
 }
@@ -279,12 +283,14 @@ func (app *BaseApp) DeliverTx(req abci.RequestDeliverTx) abci.ResponseDeliverTx 
 		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, anteEvents, app.trace)
 	}
 
+	events := sdk.MarkEventsToIndex(result.Events, app.indexEvents)
+	app.deliverState.eventHistory = append(app.deliverState.eventHistory, events...)
 	return abci.ResponseDeliverTx{
 		GasWanted: int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
 		GasUsed:   int64(gInfo.GasUsed),   // TODO: Should type accept unsigned ints?
 		Log:       result.Log,
 		Data:      result.Data,
-		Events:    sdk.MarkEventsToIndex(result.Events, app.indexEvents),
+		Events:    events,
 	}
 }
 
@@ -411,8 +417,18 @@ func (app *BaseApp) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 	}()
 
 	// when a client did not provide a query height, manually inject the latest
+	lastHeight := app.LastBlockHeight()
 	if req.Height == 0 {
-		req.Height = app.LastBlockHeight()
+		req.Height = lastHeight
+	}
+	if req.Height > lastHeight {
+		return sdkerrors.QueryResult(
+			sdkerrors.Wrapf(
+				sdkerrors.ErrInvalidHeight,
+				"given height %d is greater than latest height %d",
+				req.Height, lastHeight,
+			),
+		)
 	}
 
 	// handle gRPC routes first rather than calling splitPath because '/' characters
@@ -423,7 +439,7 @@ func (app *BaseApp) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 
 	path := splitPath(req.Path)
 	if len(path) == 0 {
-		sdkerrors.QueryResult(sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, "no query path provided"))
+		return sdkerrors.QueryResult(sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, "no query path provided"))
 	}
 
 	switch path[0] {
@@ -623,8 +639,17 @@ func (app *BaseApp) createQueryContext(height int64, prove bool) (sdk.Context, e
 	}
 
 	// when a client did not provide a query height, manually inject the latest
+	lastHeight := app.LastBlockHeight()
 	if height == 0 {
-		height = app.LastBlockHeight()
+		height = lastHeight
+	}
+	if height > lastHeight {
+		return sdk.Context{}, sdkerrors.Wrapf(
+			sdkerrors.ErrInvalidRequest,
+			"cannot query with height %d; last height is %d",
+			height,
+			lastHeight,
+		)
 	}
 
 	if height <= 1 && prove {

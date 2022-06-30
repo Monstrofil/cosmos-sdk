@@ -411,7 +411,7 @@ func (s *coinTestSuite) TestEqualCoins() {
 		{sdk.Coins{}, sdk.Coins{}, true, false},
 		{sdk.Coins{sdk.NewInt64Coin(testDenom1, 0)}, sdk.Coins{sdk.NewInt64Coin(testDenom1, 0)}, true, false},
 		{sdk.Coins{sdk.NewInt64Coin(testDenom1, 0), sdk.NewInt64Coin(testDenom2, 1)}, sdk.Coins{sdk.NewInt64Coin(testDenom1, 0), sdk.NewInt64Coin(testDenom2, 1)}, true, false},
-		{sdk.Coins{sdk.NewInt64Coin(testDenom1, 0)}, sdk.Coins{sdk.NewInt64Coin(testDenom2, 0)}, false, true},
+		{sdk.Coins{sdk.NewInt64Coin(testDenom1, 0)}, sdk.Coins{sdk.NewInt64Coin(testDenom2, 0)}, false, false},
 		{sdk.Coins{sdk.NewInt64Coin(testDenom1, 0)}, sdk.Coins{sdk.NewInt64Coin(testDenom1, 1)}, false, false},
 		{sdk.Coins{sdk.NewInt64Coin(testDenom1, 0)}, sdk.Coins{sdk.NewInt64Coin(testDenom1, 0), sdk.NewInt64Coin(testDenom2, 1)}, false, false},
 		{sdk.Coins{sdk.NewInt64Coin(testDenom1, 0), sdk.NewInt64Coin(testDenom2, 1)}, sdk.Coins{sdk.NewInt64Coin(testDenom1, 0), sdk.NewInt64Coin(testDenom2, 1)}, true, false},
@@ -653,6 +653,33 @@ func (s *coinTestSuite) TestCoins_Validate() {
 		} else {
 			s.Require().Error(err, tc.name)
 		}
+	}
+}
+
+func (s *coinTestSuite) TestMinMax() {
+	one := sdk.OneInt()
+	two := sdk.NewInt(2)
+
+	cases := []struct {
+		name   string
+		input1 sdk.Coins
+		input2 sdk.Coins
+		min    sdk.Coins
+		max    sdk.Coins
+	}{
+		{"zero-zero", sdk.Coins{}, sdk.Coins{}, sdk.Coins{}, sdk.Coins{}},
+		{"zero-one", sdk.Coins{}, sdk.Coins{{testDenom1, one}}, sdk.Coins{}, sdk.Coins{{testDenom1, one}}},
+		{"two-zero", sdk.Coins{{testDenom2, two}}, sdk.Coins{}, sdk.Coins{}, sdk.Coins{{testDenom2, two}}},
+		{"disjoint", sdk.Coins{{testDenom1, one}}, sdk.Coins{{testDenom2, two}}, sdk.Coins{}, sdk.Coins{{testDenom1, one}, {testDenom2, two}}},
+		{"overlap", sdk.Coins{{testDenom1, one}, {testDenom2, two}}, sdk.Coins{{testDenom1, two}, {testDenom2, one}},
+			sdk.Coins{{testDenom1, one}, {testDenom2, one}}, sdk.Coins{{testDenom1, two}, {testDenom2, two}}},
+	}
+
+	for _, tc := range cases {
+		min := tc.input1.Min(tc.input2)
+		max := tc.input1.Max(tc.input2)
+		s.Require().True(min.IsEqual(tc.min), tc.name)
+		s.Require().True(max.IsEqual(tc.max), tc.name)
 	}
 }
 
