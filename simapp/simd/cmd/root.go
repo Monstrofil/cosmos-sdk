@@ -139,9 +139,10 @@ lru_size = 0`
 
 func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
 	cfg := sdk.GetConfig()
-        cfg.SetBech32PrefixForAccount("umee", "umeepub")
-	cfg.SetBech32PrefixForValidator("umeevaloper", "umeevaloperpub")
-	cfg.SetBech32PrefixForConsensusNode("umeevalcons", "umeevalconspub")
+        cfg.SetBech32PrefixForAccount("agoric", "agoricpub")
+	cfg.SetBech32PrefixForValidator("agoricvaloper", "agoricvaloperpub")
+	cfg.SetBech32PrefixForConsensusNode("agoricvalcons", "agoricvalconspub")
+	cfg.SetCoinType(564)
 	cfg.Seal()
 
 	rootCmd.AddCommand(
