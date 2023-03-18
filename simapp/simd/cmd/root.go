@@ -139,10 +139,10 @@ lru_size = 0`
 
 func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
 	cfg := sdk.GetConfig()
-        cfg.SetBech32PrefixForAccount("persistence", "persistencepub")
-	cfg.SetBech32PrefixForValidator("persistencevaloper", "persistencevaloperpub")
-	cfg.SetBech32PrefixForConsensusNode("persistencevalcons", "persistencevalconspub")
-	cfg.SetCoinType(750)
+        cfg.SetBech32PrefixForAccount("sent", "sentpub")
+	cfg.SetBech32PrefixForValidator("sentvaloper", "sentvaloperpub")
+	cfg.SetBech32PrefixForConsensusNode("sentvalcons", "sentvalconspub")
+	cfg.SetCoinType(118)
 	cfg.Seal()
 
 	rootCmd.AddCommand(
